@@ -20,7 +20,7 @@ import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String TAG = "BLUETOOTH_HANDLER";
+    private static final String TAG = "Server_Microbit";
 
     public BluetoothAdapter mBluetoothAdapter;
     private BluetoothServerSocket mmServerSocket;
@@ -28,6 +28,7 @@ public class MainActivity extends AppCompatActivity {
 
     TextView text;
 
+    //Handler to change UI
     public final Handler mHandler = new Handler() {
         public void handleMessage(Message msg) {
             final int what = msg.what;
@@ -56,8 +57,7 @@ public class MainActivity extends AppCompatActivity {
         public static final int MESSAGE_TOAST = 2;
         public static final int MESSAGE_STATUS = 3;
         public static final int MESSAGE_BUTTON = 4;
-
-        // ... (Add other message types here as needed.)
+        // Add as needed
     }
 
     @Override
@@ -90,11 +90,6 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
 
-//                Intent discoverableIntent = new
-//                        Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
-//                discoverableIntent.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300);
-//                startActivity(discoverableIntent);
-//                text.setText("Discoverable!!");
                 while(mmServerSocket==null) {
                     AcceptThread();
                     Thread thread = new Thread() {
@@ -106,7 +101,7 @@ public class MainActivity extends AppCompatActivity {
                                 try {
                                     socket = mmServerSocket.accept();
                                 } catch (IOException e) {
-                                    Log.e("RUN", "Socket's accept() method failed");
+                                    Log.e(TAG, "Socket's accept() method failed");
                                     break;
                                 }
 
@@ -116,7 +111,6 @@ public class MainActivity extends AppCompatActivity {
                                     mHandler.obtainMessage(MessageConstants.MESSAGE_STATUS, "Online").sendToTarget();
                                     ConnectedThread ct = new ConnectedThread(socket);
                                     ct.start();
-                                    Log.e("DONE", "DONE!!!!");
                                     try {
                                         mmServerSocket.close();
                                     } catch (IOException e){
@@ -133,13 +127,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void AcceptThread() throws IOException {
-        Log.e("ACCEPTTHREAD", "HELLO");
         BluetoothServerSocket tmp = null;
         try {
             tmp = mBluetoothAdapter.listenUsingRfcommWithServiceRecord("ServerMicrobit", MY_UUID_SECURE);
             mHandler.obtainMessage(MessageConstants.MESSAGE_STATUS, "Listening for connections").sendToTarget();
         } catch (IOException e) {
-            Log.e("SERVER", "AcceptThread not working!");
+            Log.e(TAG, "AcceptThread method failed!");
         }
         mmServerSocket = tmp;
     }
@@ -179,7 +172,7 @@ public class MainActivity extends AppCompatActivity {
             int numBytes; // bytes returned from read()
 
             // Keep listening to the InputStream until an exception occurs.
-            while (true) {
+            while (mmSocket.isConnected()) {
                 try {
                     // Read from the InputStream.
                     numBytes = mmInStream.read(mmBuffer);
@@ -194,6 +187,10 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 }
             }
+            mHandler.obtainMessage(MessageConstants.MESSAGE_STATUS, "Offline").sendToTarget();
+            mHandler.obtainMessage(MessageConstants.MESSAGE_READ, android.provider.Settings.Secure.getString(getContentResolver(), "bluetooth_address")).sendToTarget();
+            cancel();
+
         }
 
         // Call this from the main activity to send data to the remote device.
