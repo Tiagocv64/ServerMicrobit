@@ -6,12 +6,14 @@ import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Message;
+import android.provider.Settings;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,6 +23,8 @@ import java.util.UUID;
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "Server_Microbit";
+
+    private ConnectedThread ct;
 
     public BluetoothAdapter mBluetoothAdapter;
     private BluetoothServerSocket mmServerSocket;
@@ -45,6 +49,9 @@ public class MainActivity extends AppCompatActivity {
                     Button button = (Button) findViewById(R.id.button_start);
                     button.setText(msg.obj.toString());
                     break;
+                case MessageConstants.MESSAGE_TOAST:
+                    Toast.makeText(getApplicationContext(), msg.obj.toString(), Toast.LENGTH_SHORT).show();
+                    break;
             }
         }
     };
@@ -65,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         text = (TextView)findViewById(R.id.text_view_current);
-        text.setText(android.provider.Settings.Secure.getString(this.getContentResolver(), "bluetooth_address"));
+        text.setText(getBluetoothAddress());
     }
 
     public void onClick(View view) throws IOException {
@@ -76,8 +83,9 @@ public class MainActivity extends AppCompatActivity {
                     mmServerSocket.close();
                 mmServerSocket = null;
                 mBluetoothAdapter = null;
+                ct.cancel();
 
-                text.setText(android.provider.Settings.Secure.getString(this.getContentResolver(), "bluetooth_address"));
+                text.setText(getBluetoothAddress());
                 mHandler.obtainMessage(MessageConstants.MESSAGE_STATUS, "Offline").sendToTarget();
                 break;
 
@@ -90,38 +98,43 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
 
-                while(mmServerSocket==null) {
-                    AcceptThread();
-                    Thread thread = new Thread() {
-                        @Override
-                        public void run() {
-                            BluetoothSocket socket = null;
-                            // Keep listening until exception occurs or a socket is returned.
-                            while (true) {
-                                try {
-                                    socket = mmServerSocket.accept();
-                                } catch (IOException e) {
-                                    Log.e(TAG, "Socket's accept() method failed");
-                                    break;
-                                }
-
-                                if (socket != null) {
-                                    // A connection was accepted. Perform work associated with
-                                    // the connection in a separate thread.
-                                    mHandler.obtainMessage(MessageConstants.MESSAGE_STATUS, "Online").sendToTarget();
-                                    ConnectedThread ct = new ConnectedThread(socket);
-                                    ct.start();
+                if (mBluetoothAdapter.isEnabled()) {
+                    while (mmServerSocket == null) {
+                        AcceptThread();
+                        Thread thread = new Thread() {
+                            @Override
+                            public void run() {
+                                BluetoothSocket socket = null;
+                                // Keep listening until exception occurs or a socket is returned.
+                                while (true) {
                                     try {
-                                        mmServerSocket.close();
-                                    } catch (IOException e){
-                                        e.printStackTrace();
+                                        socket = mmServerSocket.accept();
+                                        mHandler.obtainMessage(MessageConstants.MESSAGE_TOAST, "Established connection.").sendToTarget();
+                                    } catch (IOException e) {
+                                        Log.e(TAG, "Socket's accept() method failed");
+                                        break;
                                     }
-                                    break;
+
+                                    if (socket != null) {
+                                        // A connection was accepted. Perform work associated with
+                                        // the connection in a separate thread.
+                                        mHandler.obtainMessage(MessageConstants.MESSAGE_STATUS, "Online").sendToTarget();
+                                        ct = new ConnectedThread(socket);
+                                        ct.start();
+                                        try {
+                                            mmServerSocket.close();
+                                        } catch (IOException e) {
+                                            e.printStackTrace();
+                                        }
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                    };
-                    thread.start();
+                        };
+                        thread.start();
+                    }
+                } else {
+                    mHandler.obtainMessage(MessageConstants.MESSAGE_TOAST, "Bluetooth is disabled. Please enable it.").sendToTarget();
                 }
         }
     }
@@ -139,8 +152,8 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-    private class ConnectedThread extends Thread {
-        private final BluetoothSocket mmSocket;
+    public class ConnectedThread extends Thread {
+        public final BluetoothSocket mmSocket;
         private final InputStream mmInStream;
         private final OutputStream mmOutStream;
         private byte[] mmBuffer; // mmBuffer store for the stream
@@ -188,7 +201,8 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             mHandler.obtainMessage(MessageConstants.MESSAGE_STATUS, "Offline").sendToTarget();
-            mHandler.obtainMessage(MessageConstants.MESSAGE_READ, android.provider.Settings.Secure.getString(getContentResolver(), "bluetooth_address")).sendToTarget();
+            mHandler.obtainMessage(MessageConstants.MESSAGE_TOAST, "Lost connection to device. Reset is advised").sendToTarget();
+            mHandler.obtainMessage(MessageConstants.MESSAGE_READ, 0, 0, getBluetoothAddress()).sendToTarget();
             cancel();
 
         }
@@ -224,5 +238,20 @@ public class MainActivity extends AppCompatActivity {
                 Log.e(TAG, "Could not close the connect socket", e);
             }
         }
+    }
+
+    public String getBluetoothAddress(){
+
+        String s;
+
+        int currentApiVersion = android.os.Build.VERSION.SDK_INT;
+
+        if (currentApiVersion >= android.os.Build.VERSION_CODES.M) {
+            s = Settings.Secure.getString(this.getContentResolver(), "bluetooth_address");
+        } else {
+            // Do this for phones running an SDK before lollipop
+            s = BluetoothAdapter.getDefaultAdapter().getAddress();
+        }
+        return s;
     }
 }
